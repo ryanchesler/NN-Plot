@@ -3,17 +3,14 @@ import numpy as np
 import os
 from PIL import Image
 import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
-import matplotlib.colors as clrs
-import matplotlib
 import matplotlib.gridspec as gridspec
 from matplotlib import animation
 from matplotlib.collections import PatchCollection
-import random
 from random import shuffle
 import time
 from tkinter import filedialog
 from NNPlot import draw_neural_net, draw_cost, draw_accuracy
+
 global pause, layer_step, step_pause
 
 #Define figure to plot to
@@ -117,17 +114,15 @@ cross_entropy = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(labels=y_
 train_step = tf.train.AdamOptimizer(0.001).minimize(cross_entropy)
 correct_prediction = tf.equal(tf.argmax(layer4,1)+1, tf.argmax(y_,1)+1)
 accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-
-
-acc, cost, zmac, wmac, pic_index, picture = [], [], [], [], [], []
-iterations = 100
+acc, cost, zmac, wmac, gradmac, pic_index, picture = [], [], [], [], [], [], []
+iterations = 251
 batch_size = -1
 reducedimto = 10
 saver = tf.train.Saver()
 with tf.Session() as sess:
     tf.global_variables_initializer().run()
     for i in range(iterations):
-      weightreduced,list1_shuf, list2_shuf, weights, zs, pic_sample = [], [], [], [], [], []
+      w1gradreduce, weightreduced,list1_shuf, list2_shuf, weights, zs, grads, pic_sample = [], [], [], [], [], [], [], []
       index_shuf = list(range(len(train_x)))
       shuffle(index_shuf)
       index_shuf = index_shuf[:batch_size]
@@ -137,7 +132,7 @@ with tf.Session() as sess:
         list2_shuf.append(train_y[j])
       list_len = len(list1_shuf[0])
       part_len = list_len//reducedimto
-      _, accspot, costspot, weight1, weight2, weight3, weight4, lay1, lay2, lay3, lay4= sess.run([train_step, accuracy, cross_entropy, W1, W2, W3, W4, layer1, layer2, layer3, tf.nn.softmax(layer4)], feed_dict={x: list1_shuf, y_: list2_shuf, keep_prob1: .9, keep_prob2:.9, keep_prob3: .9})
+      _, accspot, costspot, weight1, weight2, weight3, weight4, lay1, lay2, lay3, lay4= sess.run([train_step, accuracy, cross_entropy, drop1, drop2, drop3, W4, layer1, layer2, layer3, tf.nn.softmax(layer4)], feed_dict={x: list1_shuf, y_: list2_shuf, keep_prob1: .9, keep_prob2:.9, keep_prob3: .9})
       for part in range(reducedimto):
         pic_sample.append(np.average(list1_shuf[0][part_len*part:part_len*(part+1)])/255)
         weightreduced.append(np.average(weight1[part_len*part:part_len*(part+1)], axis = 0))
@@ -170,13 +165,14 @@ with tf.Session() as sess:
                   xdif = 1
               X_std = (subvalue - xmin) / xdif
               zs[index][subindex] = X_std
+      gradmac.append(grads)
       zmac.append(zs)
       wmac.append(weights)
     saver.save(sess, "./checkpoint/model.ckpt")
 print(acc[-1])
 
 ax1 = plt.subplot(gs[:, 4:])
-p = draw_neural_net(ax1, zmac[0], wmac[0], ["Circle", "Square", "Triangle", "I Don't Know"])
+p, linecollect, line_width = draw_neural_net(ax1, zmac[0], wmac[0], mode = "train", labels =  ["Circle", "Square", "Triangle", "I Don't Know"])
 ax2 = plt.subplot(gs[0:4, 0:4])
 line1 = draw_cost(ax2, cost)
 ax3 = plt.subplot(gs[5:9, 0:4])
@@ -197,44 +193,72 @@ def on_key(event):
   if event.key == "left":  
     layer_step -= 1
 
-
 def animate(i, mode):
-    global pause, p, layer_step, step_pause
+    global pause, p, linecollect, layer_step, step_pause, line_width
     if not pause:
         colors = []
+        lwidth = []
         if mode == "train":
-            current_step = 25*(layer_step//5)
-        elif mode == "test":
-            current_step = (layer_step//5)
-        layer_step_point = layer_step % 5
-        if current_step >= len(zmac):
-            time.sleep(5)
-            if mode == "train":
-                return line1, line2, ax1, ax4, p
-            elif mode == "test":
-                return ax1, ax4, p
-        for layer_bound, layer in enumerate(zmac[current_step]):
-            if layer_bound > layer_step_point:
-                layer_colors = [0] * len(layer)
-            else:
-                layer_colors = layer
-            colors.append(layer_colors)
-        
-        p.set_array(np.hstack(np.array(colors)))
-        if mode == "train":
+            current_step = 25*(layer_step//(len(zmac[0])+ len(wmac[0])))
+            if current_step > len(zmac):
+                current_step = (len(zmac)-1)
+            layer_step_point = layer_step % (len(zmac[0])+ len(wmac[0]))
+            ax1.set_title("Batch: " + str(current_step) + " Example: " + str(pic_index[current_step]))
             line1.set_data(range(current_step), cost[0:current_step])
             line2.set_data(range(current_step),acc[0:current_step])
+            arr = np.array(picture[current_step]).reshape(50, 50)
+            img = Image.fromarray(arr).convert("LA")
+            ax4.imshow(img)
+        if layer_step_point < len(zmac[current_step]):
+            for layer_bound, layer in enumerate(zmac[current_step]):
+                if layer_bound > layer_step_point:
+                    layer_colors = [0] * len(layer)
+                else:
+                    layer_colors = layer
+                colors.append(layer_colors)
+            p.set_array(np.hstack(np.array(colors)))
+        else:
+            for layer_bound2, width in enumerate(reversed(wmac[current_step])):
+                if layer_bound2 > layer_step_point- len(zmac[0]):
+                    pass
+                else:
+                    for width_unit in width:
+                        for sub_width_unit in width_unit:
+                            line_width.pop()
+                            lwidth.append(50*sub_width_unit)
+            for unit in reversed(lwidth):
+                line_width.append(unit)
+            final_line_width = np.absolute(np.array(line_width))
+            final_colors = np.array(line_width)
+            linecollect.set_linewidth(final_line_width)
+            linecollect.set_array(final_colors)
+        if not step_pause:
+          layer_step += 1
+        return line1, line2, ax1, ax4, p, linecollect
+def animate2(i, mode):
+    global pause, p, linecollect, layer_step, step_pause, line_width
+    if not pause:
+        colors = []
+        current_step = layer_step//(len(zmac[0]))
+        if current_step > len(zmac):
+            current_step = (len(zmac)-1)
+            pause = True
+        layer_step_point = layer_step % (len(zmac[0]))
+        ax1.set_title("Test: " + str(current_step))
         arr = np.array(picture[current_step]).reshape(50, 50)
         img = Image.fromarray(arr).convert("LA")
         ax4.imshow(img)
+        if layer_step_point < len(zmac[current_step]):
+            for layer_bound, layer in enumerate(zmac[current_step]):
+                if layer_bound > layer_step_point:
+                    layer_colors = [0] * len(layer)
+                else:
+                    layer_colors = layer
+                colors.append(layer_colors)
+            p.set_array(np.hstack(np.array(colors)))
         if not step_pause:
           layer_step += 1
-        if mode == "train":
-            ax1.set_title("Batch: " + str(current_step) + " Example: " + str(pic_index[current_step]))
-            return line1, line2, ax1, ax4, p
-        elif mode == "test":
-            ax1.set_title("Test: " + str(current_step))
-            return ax1, ax4, p
+        return ax1, ax4, p
 
 
      
@@ -285,13 +309,13 @@ with tf.Session() as sess:
 fig = plt.figure(figsize= (12,12))
 gs = gridspec.GridSpec(16, 16)
 ax1 = plt.subplot(gs[:, 4:])
-p = draw_neural_net(ax1, zmac[0], wmac[-1], ["Circle", "Square", "Triangle", "I Don't Know"])
+p, linecollect, line_width = draw_neural_net(ax1, zmac[-1], wmac[-1], mode = "test", labels = ["Circle", "Square", "Triangle", "I Don't Know"])
 ax4 = plt.subplot(gs[10:14, 0:4])
 pause = True
 layer_step = 0
 cid = fig.canvas.mpl_connect('button_press_event', onClick)
 cid = fig.canvas.mpl_connect('key_press_event', on_key)
-ani = animation.FuncAnimation(fig, animate, fargs = ("test",))
+ani = animation.FuncAnimation(fig, animate2, fargs = ("test",))
 plt.show()
 
 

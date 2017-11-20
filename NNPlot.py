@@ -9,17 +9,20 @@ import matplotlib.colors as clrs
 import matplotlib
 import matplotlib.gridspec as gridspec
 from matplotlib import animation
-from matplotlib.collections import PatchCollection
+from matplotlib.collections import PatchCollection, LineCollection
+from matplotlib.colors import ListedColormap, BoundaryNorm
 import random
 from random import shuffle
 import time
 from tkinter import filedialog
 
-def draw_neural_net(nn, zs, weights, labels = [], left = .1, right = .9, bottom = .1, top = .9):
-    p = []
+def draw_neural_net(nn, zs, weights, labels = [], mode = "train", left = .1, right = .9, bottom = .1, top = .9):
+    l = []
     nodes = []
     patches = []
     colors = []
+    linecolors = []
+    line_width = []
     maps = matplotlib.cm.autumn
     nn.axis('off')
     for node_count in zs:
@@ -43,8 +46,11 @@ def draw_neural_net(nn, zs, weights, labels = [], left = .1, right = .9, bottom 
             if n == 0:
                 plt.text(left-0.125, layer_top - m*v_spacing, r'$X_{'+str(m+1)+'}$', fontsize=15)
             elif n == n_layers -1:
-                text = labels[m]
-                plt.text(n*h_spacing + left+0.10, layer_top - m*v_spacing, text, fontsize=12)
+                try:
+                    text = labels[m]
+                    plt.text(n*h_spacing + left+0.10, layer_top - m*v_spacing, text, fontsize=12)
+                except:
+                    pass
     p = PatchCollection(patches, cmap = maps, alpha =1)
     nn.add_collection(p)
     
@@ -54,9 +60,10 @@ def draw_neural_net(nn, zs, weights, labels = [], left = .1, right = .9, bottom 
         layer_top_b = v_spacing*(layer_size_b - 1)/2. + (top + bottom)/2.
         for m in range(layer_size_a):
             for o in range(layer_size_b):
-                line = plt.Line2D([n*h_spacing + left, (n + 1)*h_spacing + left],
-                              [layer_top_a - m*v_spacing, layer_top_b - o*v_spacing], c='k')
-                nn.add_artist(line)
+                line = [[n*h_spacing + left, layer_top_a - m*v_spacing],
+                              [(n + 1)*h_spacing + left, layer_top_b - o*v_spacing]]
+                l.append(line)
+                
                 xm = (n*h_spacing + left)
                 xo = ((n + 1)*h_spacing + left)
                 ym = (layer_top_a - m*v_spacing)
@@ -75,7 +82,20 @@ def draw_neural_net(nn, zs, weights, labels = [], left = .1, right = .9, bottom 
                     else:
                         ym1 = ym + (v_spacing/8.+0.04)*np.sin(rot_mo_rad)
                 plt.text( xm1, ym1, str(round(weights[n][m][o],4)), rotation = rot_mo_deg, fontsize = 10)
-    return p
+                if mode == "test":
+                    linecolors.append(50*weights[n][m][o])
+                if mode == "train":
+                    linecolors.append(weights[n][m][o])
+    for value in linecolors:
+        line_width.append(abs(value))
+    linecolors = np.array(linecolors)
+    map2 = ListedColormap(['r', 'g'])
+    norm = BoundaryNorm([-50, 0., 50], map2.N)
+    linecollect = LineCollection(l, cmap = map2)
+    linecollect.set_array(linecolors)
+    linecollect.set_linewidth(np.array(line_width))
+    nn.add_collection(linecollect)
+    return p, linecollect, line_width
 def draw_cost(cost_plot, cost):
     line1, = cost_plot.plot([], [], lw=2)
     cost_plot.set_ylabel('cost')
